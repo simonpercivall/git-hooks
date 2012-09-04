@@ -133,7 +133,7 @@ function list_hooks
         echo "${dir}:"
         for hook in `list_hooks_in_dir "${dir}"` ; do
             echo -n `basename \`dirname "${hook}"\``
-            echo -e "/`basename "${hook}"` \t- `${hook} --about`"
+            echo -e "/`basename "${hook}"`"
         done
         echo ""
     done
