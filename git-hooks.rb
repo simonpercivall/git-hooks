@@ -7,5 +7,6 @@ class GitHooks < Formula
   
   def install
     bin.install('git-hooks')
+    man1.install('git-hooks.1')
   end
 end
