@@ -56,7 +56,7 @@ CREATING HOOKS
 
 To keep things organized git-hooks looks for scripts in sub directories named after the git hook name.  For example this project has the following pre-commit script in the following location:
 
-git_hooks/pre-commit/bsd
+githooks/pre-commit/bsd
 
 When you run 'git hooks' with no arguments it will list all of the hooks installed on the system.  It will run the hooks with the --about argument to generate the description that is shown.  Checkout the hooks in contrib for some examples.
 
