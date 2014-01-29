@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Copyright (c) 2010-2012, Benjamin C. Meyer <ben@meyerhome.net>
+# Copyright (c) 2010-2013, Benjamin C. Meyer <ben@meyerhome.net>
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,15 +34,26 @@ function hook_dirs
         hook=""
     fi
     echo "${HOME}/.githooks${hook}"
-    GITDIR=`git rev-parse --git-dir`
-    cd $GITDIR/..
-    echo "${PWD}/.githooks${hook}"
+    git rev-parse --git-dir &> /dev/null
+    if [ $? -eq 0 ]; then
+    if [ $(git rev-parse --is-bare-repository) = 'false' ]; then
+        cd $(git rev-parse --show-toplevel)
+        echo "${PWD}/.githooks${hook}"
+    fi
+    fi
     eval echo "`git config hooks.global`"${hook}
 }
 
 function list_hooks_in_dir
 {
-    find -L "${1}/" -perm +111 -type f 2>/dev/null | grep -v "^.$" | sort
+    path="${1}"
+    level="${2}"
+    find --help 2>&1 | grep -- '-L' 2>/dev/null >/dev/null
+    if [ $? -eq 1 ] ; then
+        find "${path}/" -mindepth ${level} -maxdepth ${level} -perm +111 -type f 2>/dev/null | grep -v "^.$" | sort
+    else
+        find -L "${path}/" -mindepth ${level} -maxdepth ${level} -perm +111 -type f 2>/dev/null | grep -v "^.$" | sort
+    fi
 }
 
 function run_hooks
@@ -53,7 +64,7 @@ function run_hooks
         return 1
     fi
     shift 1
-    for hook in `list_hooks_in_dir "${dir}"`
+    for hook in `list_hooks_in_dir "${dir}" 1`
     do
         export last_run_hook="${hook} $@"
         if [ ! -z ${GIT_HOOKS_VERBOSE} ] ; then
@@ -83,6 +94,23 @@ function run_hook
     set +e
 }
 
+function install_hooks_into
+{
+    DIR=$1
+    cd "${DIR}"
+
+    set -e
+    mv hooks hooks.old
+    set +e
+    mkdir hooks
+    cd hooks
+    for file in applypatch-msg commit-msg post-applypatch post-checkout post-commit post-merge post-receive pre-applypatch pre-auto-gc pre-commit prepare-commit-msg pre-rebase pre-receive update pre-push
+    do
+        echo "${2}" > "${file}"
+        chmod +x "${file}"
+    done
+}
+
 function install_hooks
 {
     GITDIR=`git rev-parse --git-dir`
@@ -96,15 +124,9 @@ function install_hooks
             echo "hooks.old already exists, perhaps you already installed?"
             return 1
         fi
-        mv hooks hooks.old
-        mkdir hooks
-        cd hooks
-        for file in applypatch-msg commit-msg post-applypatch post-checkout post-commit post-merge post-receive pre-applypatch pre-auto-gc pre-commit prepare-commit-msg pre-rebase pre-receive update
-        do
-            echo '#!/bin/bash
-git-hooks run "$0" "$@"' > "${file}"
-            chmod +x "${file}"
-        done
+    cmd='#!/usr/bin/env bash
+git-hooks run "$0" "$@"';
+    install_hooks_into "${PWD}" "${cmd}"
     else
         if [ ! -d hooks.old ] ; then
             echo "Error, hooks.old doesn't exists, aborting uninstall to not destroy something"
@@ -123,7 +145,7 @@ function list_hooks
         echo "Git hooks ARE installed in this repository."
         echo ""
     else
-        echo "Git hooks are NOT installed in this repository."
+        echo "Git hooks are NOT installed in this repository. (Run 'git hooks --install' to install it)"
         echo ""
     fi
 
@@ -131,7 +153,7 @@ function list_hooks
     echo '---'
     for dir in `hook_dirs`; do
         echo "${dir}:"
-        for hook in `list_hooks_in_dir "${dir}"` ; do
+        for hook in `list_hooks_in_dir "${dir}" 2` ; do
             echo -n `basename \`dirname "${hook}"\``
             echo -e "/`basename "${hook}"`"
         done
@@ -142,6 +164,28 @@ function list_hooks
 function report_error {
     echo "Hook failed: $last_run_hook"
     exit 1
+}
+
+function installglobal {
+    TEMPLATE="$HOME/.git-template-with-git-hooks"
+    if [ ! -d "${TEMPLATE}" ] ; then
+        DEFAULT=/usr/share/git-core/templates
+        if [ -d ${DEFAULT} ] ; then
+            cp -rf /usr/share/git-core/templates "${TEMPLATE}"
+        else
+            mkdir -p "${TEMPLATE}/hooks"
+        fi
+        cmd="#!/usr/bin/env bash
+echo \"git hooks not installed in this repository.  Run 'git hooks --install' to install it or 'git hooks -h' for more information.\"";
+        install_hooks_into "${TEMPLATE}" "${cmd}"
+        mv "${TEMPLATE}/hooks.old" "${TEMPLATE}/hooks.original"
+    fi
+    git config --global init.templatedir "${TEMPLATE}"
+    echo "Git global config init.templatedir is now set to ${TEMPLATE}"
+}
+
+function uninstallglobal {
+    git config --global --unset init.templatedir
 }
 
 case $1 in
@@ -156,14 +200,28 @@ case $1 in
     --install|--uninstall )
         install_hooks "$1"
         ;;
+    --installglobal )
+        installglobal
+        ;;
+    --uninstallglobal )
+        uninstallglobal
+        ;;
     -h|--help|-? )
         echo 'Git Hooks'
+        echo '    A tool to manage project, user, and global Git hooks for multiple git repositories.'
+        echo '    https://github.com/icefox/git-hooks'
         echo ''
         echo 'Options:'
         echo '    --install      Replace existing hooks in this repository with a call to'
         echo '                   git hooks run [hook].  Move old hooks directory to hooks.old'
         echo '    --uninstall    Remove existing hooks in this repository and rename hooks.old'
         echo '                   back to hooks'
+        echo '    --installglobal'
+        echo '                   Create a template .git directory that that will be used whenever'
+        echo '                   a git repository is created or cloned that will remind the user'
+        echo '                   to install git-hooks.'
+        echo '    --uninstallglobal'
+        echo '                   Turn off the global .git directory template that has the reminder.'
         echo "    run [cmd]      Run the hooks for cmd (such as pre-commit)"
         echo "    (no arguments) Show currently installed hooks"
         ;;
