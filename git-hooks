@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright (c) 2010-2013, Benjamin C. Meyer <ben@meyerhome.net>
+# Copyright (c) 2010-2014, Benjamin C. Meyer <ben@meyerhome.net>
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,12 +48,55 @@ function list_hooks_in_dir
 {
     path="${1}"
     level="${2}"
+
     find --help 2>&1 | grep -- '-L' 2>/dev/null >/dev/null
     if [ $? -eq 1 ] ; then
-        find "${path}/" -mindepth ${level} -maxdepth ${level} -perm +111 -type f 2>/dev/null | grep -v "^.$" | sort
+	Lopt=
     else
-        find -L "${path}/" -mindepth ${level} -maxdepth ${level} -perm +111 -type f 2>/dev/null | grep -v "^.$" | sort
+	Lopt=-L
     fi
+
+    find ${Lopt} "${path}/" \
+	 -mindepth ${level} \
+	 -maxdepth ${level} \
+	 \( -perm -100 -o -perm -010 -o -perm -001 \) \
+	 -type f 2>/dev/null \
+	| grep -v "^.$" | sort
+}
+
+function list_hooks
+{
+    GITDIR=`git rev-parse --git-dir`
+    cat "${GITDIR}/hooks/pre-commit" 2> /dev/null | grep 'git-hooks' > /dev/null 2> /dev/null
+
+    local dir_names=(User Repository Global)
+    local directories=$(hook_dirs)
+    local index=0
+
+    local hook_name=
+    local last_dir=
+    local current_dir=
+
+    local space_size=35
+    local about=
+
+    echo 'Listing User, Project, and Global hooks:'
+    echo ""
+
+    for dir in $directories; do
+        echo -e "\033[0;33m${dir_names[$index]}\033[0m - ${dir} "
+        index=$(($index+1))
+        for hook in `list_hooks_in_dir "${dir}" 2` ; do
+            hook_name=$(basename "$hook")
+            current_dir=$(dirname "$hook")
+            if [ "$current_dir" != "$last_dir" ]; then
+                echo $(basename "$current_dir")
+                last_dir="$current_dir"
+            fi
+            echo "  "$(printf "%-${space_size}s%s" $(echo -e "\033[1;36m${hook_name}\033[0m___" | sed -e 's/-/_/g' )  | sed -e 's/ /-/g' -e 's/_/ /g' )
+        done
+        echo ""
+    done
 }
 
 function run_hooks
@@ -118,7 +161,7 @@ function install_hooks
         echo "$1 must be run inside a git repository"
         return 1
     fi
-    cd $GITDIR
+    cd "${GITDIR}"
     if [ "${1}" = "--install" ] ; then
         if [ -d hooks.old ] ; then
             echo "hooks.old already exists, perhaps you already installed?"
@@ -137,36 +180,8 @@ git-hooks run "$0" "$@"';
     fi
 }
 
-function list_hooks
+function install_global 
 {
-    GITDIR=`git rev-parse --git-dir`
-    cat $GITDIR/hooks/pre-commit 2> /dev/null | grep 'git-hooks' > /dev/null 2> /dev/null
-    if [ $? = 0 ] ; then
-        echo "Git hooks ARE installed in this repository."
-        echo ""
-    else
-        echo "Git hooks are NOT installed in this repository. (Run 'git hooks --install' to install it)"
-        echo ""
-    fi
-
-    echo 'Listing User, Project, and Global hooks:'
-    echo '---'
-    for dir in `hook_dirs`; do
-        echo "${dir}:"
-        for hook in `list_hooks_in_dir "${dir}" 2` ; do
-            echo -n `basename \`dirname "${hook}"\``
-            echo -e "/`basename "${hook}"`"
-        done
-        echo ""
-    done
-}
-
-function report_error {
-    echo "Hook failed: $last_run_hook"
-    exit 1
-}
-
-function installglobal {
     TEMPLATE="$HOME/.git-template-with-git-hooks"
     if [ ! -d "${TEMPLATE}" ] ; then
         DEFAULT=/usr/share/git-core/templates
@@ -184,8 +199,16 @@ echo \"git hooks not installed in this repository.  Run 'git hooks --install' to
     echo "Git global config init.templatedir is now set to ${TEMPLATE}"
 }
 
-function uninstallglobal {
+function uninstall_global 
+{
     git config --global --unset init.templatedir
+}
+
+function report_error 
+{
+    echo "Hook failed: $last_run_hook"
+    exit 1
+
 }
 
 case $1 in
@@ -200,11 +223,11 @@ case $1 in
     --install|--uninstall )
         install_hooks "$1"
         ;;
-    --installglobal )
-        installglobal
+    --install-global|--installglobal )
+        install_global
         ;;
-    --uninstallglobal )
-        uninstallglobal
+    --uninstall-global|--uninstallglobal )
+        uninstall_global
         ;;
     -h|--help|-? )
         echo 'Git Hooks'
@@ -216,13 +239,13 @@ case $1 in
         echo '                   git hooks run [hook].  Move old hooks directory to hooks.old'
         echo '    --uninstall    Remove existing hooks in this repository and rename hooks.old'
         echo '                   back to hooks'
-        echo '    --installglobal'
+        echo '    --install-global'
         echo '                   Create a template .git directory that that will be used whenever'
         echo '                   a git repository is created or cloned that will remind the user'
         echo '                   to install git-hooks.'
-        echo '    --uninstallglobal'
+        echo '    --uninstall-global'
         echo '                   Turn off the global .git directory template that has the reminder.'
-        echo "    run [cmd]      Run the hooks for cmd (such as pre-commit)"
+        echo "    run <cmd>      Run the hooks for <cmd> (such as pre-commit)"
         echo "    (no arguments) Show currently installed hooks"
         ;;
     * )
